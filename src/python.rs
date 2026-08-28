@@ -112,6 +112,12 @@ impl PyCard {
         Py::new(py, PyCard { inner })
     }
 
+    /// Alias for `timestamp`.
+    fn time<'py>(&self, py: Python<'py>, timestamp: &str) -> PyResult<Py<PyCard>> {
+        let inner = self.inner.clone().time(timestamp.to_string());
+        Py::new(py, PyCard { inner })
+    }
+
     fn details<'py>(&self, py: Python<'py>, details: &str) -> PyResult<Py<PyCard>> {
         let inner = self.inner.clone().details(details.to_string());
         Py::new(py, PyCard { inner })
@@ -127,6 +133,14 @@ impl PyCard {
             .inner
             .clone()
             .field(label.to_string(), value.to_string());
+        Py::new(py, PyCard { inner })
+    }
+
+    fn wide_field<'py>(&self, py: Python<'py>, label: &str, value: &str) -> PyResult<Py<PyCard>> {
+        let inner = self
+            .inner
+            .clone()
+            .wide_field(label.to_string(), value.to_string());
         Py::new(py, PyCard { inner })
     }
 

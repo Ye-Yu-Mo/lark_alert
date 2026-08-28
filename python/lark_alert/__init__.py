@@ -4,7 +4,7 @@ The Rust implementation is exposed through the compiled ``lark_alert._core``
 extension module; this package re-exports the public Python API.
 """
 
-from ._core import Card, LarkAlert, PostMessage, Severity, TextMessage
+from ._core import __version__, Card, LarkAlert, PostMessage, Severity, TextMessage
 
 __all__ = [
     "Card",
@@ -12,6 +12,5 @@ __all__ = [
     "PostMessage",
     "Severity",
     "TextMessage",
+    "__version__",
 ]
-
-__version__ = "0.1.0"

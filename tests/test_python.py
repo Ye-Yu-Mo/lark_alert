@@ -29,14 +29,22 @@ def test_card_builder_and_color_mapping():
         .summary("no space")
         .service("api")
         .environment("prod")
+        .time("2026-01-01T00:00:00Z")
         .field("host", "10.0.0.1")
+        .wide_field("mount", "/")
     )
     data = json.loads(card.to_json())
     assert data["msg_type"] == "interactive"
     assert data["card"]["header"]["template"] == "carmine"
     assert data["card"]["header"]["title"]["content"] == "disk full"
-    fields = [e for e in data["card"]["body"]["elements"] if "fields" in e]
+    fields = [
+        field
+        for element in data["card"]["body"]["elements"]
+        if "fields" in element
+        for field in element["fields"]
+    ]
     assert fields
+    assert fields[-1]["is_short"] is False
 
 
 def test_invalid_webhook_raises_value_error_not_panic():

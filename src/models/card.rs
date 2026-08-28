@@ -232,8 +232,8 @@ impl Card {
                     content: content.clone(),
                 },
                 CardElement::Hr => WireElement::Hr,
-                CardElement::Note { content } => WireElement::Markdown {
-                    content: content.clone(),
+                CardElement::Note { content } => WireElement::Note {
+                    elements: vec![WireText::plain_text(content)],
                 },
             });
         }
@@ -249,8 +249,8 @@ impl Card {
         }
 
         if let Some(note) = &self.note {
-            elements.push(WireElement::Markdown {
-                content: note.clone(),
+            elements.push(WireElement::Note {
+                elements: vec![WireText::plain_text(note)],
             });
         }
 
@@ -338,6 +338,9 @@ enum WireElement {
     Markdown {
         content: String,
     },
+    Note {
+        elements: Vec<WireText>,
+    },
     Hr,
 }
 
@@ -401,7 +404,7 @@ mod tests {
             .collect();
         assert!(kinds.contains(&"div"));
         assert!(kinds.contains(&"hr"));
-        assert!(kinds.contains(&"markdown"));
+        assert!(kinds.contains(&"note"));
 
         let serialized = card.to_json().unwrap();
         assert!(!serialized.contains("emoji"));
@@ -436,7 +439,9 @@ mod tests {
             .build();
         let value = serde_json::to_value(card.to_message()).unwrap();
         let elements = value["card"]["body"]["elements"].as_array().unwrap();
-        assert_eq!(elements.last().unwrap()["content"], "custom");
+        let last = elements.last().unwrap();
+        assert_eq!(last["tag"], "note");
+        assert_eq!(last["elements"][0]["content"], "custom");
     }
 
     #[test]
