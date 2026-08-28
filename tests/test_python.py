@@ -23,13 +23,11 @@ def test_post_message_json():
 
 def test_card_builder_and_color_mapping():
     card = (
-        Card()
+        Card("api", "node-1", "2026-01-01T00:00:00Z", "no space left")
         .severity(Severity.Critical)
         .title("disk full")
         .summary("no space")
-        .service("api")
         .environment("prod")
-        .time("2026-01-01T00:00:00Z")
         .field("host", "10.0.0.1")
         .wide_field("mount", "/")
     )
@@ -45,6 +43,13 @@ def test_card_builder_and_color_mapping():
     ]
     assert fields
     assert fields[-1]["is_short"] is False
+    assert any(field["text"]["content"].startswith("**服务**") for field in fields)
+    assert any(field["text"]["content"].startswith("**节点**") for field in fields)
+
+
+def test_card_rejects_empty_required_fields():
+    with pytest.raises(ValueError):
+        Card("", "node-1", "2026-01-01T00:00:00Z", "content").to_json()
 
 
 def test_invalid_webhook_raises_value_error_not_panic():

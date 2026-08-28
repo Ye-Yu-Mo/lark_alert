@@ -133,6 +133,7 @@ impl LarkAlert {
     }
 
     pub fn send_card(&self, card: &Card) -> Result<(), LarkAlertError> {
+        card.validate()?;
         self.send(&card.to_message())
     }
 
@@ -410,7 +411,7 @@ mod tests {
             ok_response()
         });
         let alert = LarkAlert::new(url).unwrap();
-        let card = Card::new()
+        let card = Card::new("svc", "node-1", "2026-01-01T00:00:00Z", "boom")
             .severity(Severity::Error)
             .title("test")
             .element(CardElement::Hr)

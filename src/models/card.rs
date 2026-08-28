@@ -1,6 +1,8 @@
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
+use crate::error::LarkAlertError;
+
 /// Severity levels used by the unified card style.
 ///
 /// The mapping is fixed and intentionally does **not** use emoji:
@@ -82,14 +84,20 @@ pub struct CardMessage {
 }
 
 /// Typed builder for Feishu interactive cards.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+///
+/// Required alert context: service, node, timestamp and content.
+/// These fields are part of the constructor so an alert cannot be created
+/// without describing what happened, where it happened and when.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Card {
     severity: Severity,
     title: String,
     summary: Option<String>,
-    service: Option<String>,
+    service: String,
+    node: String,
     environment: Option<String>,
-    timestamp: Option<String>,
+    timestamp: String,
+    content: String,
     fields: Vec<CardField>,
     details: Option<String>,
     note: Option<String>,
@@ -97,11 +105,25 @@ pub struct Card {
 }
 
 impl Card {
-    pub fn new() -> Self {
+    pub fn new(
+        service: impl Into<String>,
+        node: impl Into<String>,
+        timestamp: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
         Self {
             severity: Severity::Info,
             title: "Alert".to_string(),
-            ..Self::default()
+            summary: None,
+            service: service.into(),
+            node: node.into(),
+            environment: None,
+            timestamp: timestamp.into(),
+            content: content.into(),
+            fields: Vec::new(),
+            details: None,
+            note: None,
+            custom_elements: Vec::new(),
         }
     }
 
@@ -121,7 +143,12 @@ impl Card {
     }
 
     pub fn service(mut self, service: impl Into<String>) -> Self {
-        self.service = Some(service.into());
+        self.service = service.into();
+        self
+    }
+
+    pub fn node(mut self, node: impl Into<String>) -> Self {
+        self.node = node.into();
         self
     }
 
@@ -131,13 +158,24 @@ impl Card {
     }
 
     pub fn timestamp(mut self, timestamp: impl Into<String>) -> Self {
-        self.timestamp = Some(timestamp.into());
+        self.timestamp = timestamp.into();
         self
     }
 
     /// Alias for [`Card::timestamp`].
     pub fn time(mut self, time: impl Into<String>) -> Self {
-        self.timestamp = Some(time.into());
+        self.timestamp = time.into();
+        self
+    }
+
+    pub fn content(mut self, content: impl Into<String>) -> Self {
+        self.content = content.into();
+        self
+    }
+
+    /// Alias for [`Card::content`].
+    pub fn message(mut self, message: impl Into<String>) -> Self {
+        self.content = message.into();
         self
     }
 
@@ -179,6 +217,26 @@ impl Card {
         &self.title
     }
 
+    /// Validate that all required alert context fields are present.
+    ///
+    /// The constructor already requires these values, but this method also
+    /// rejects blank strings so a `Card` cannot be sent with empty context.
+    pub fn validate(&self) -> Result<(), LarkAlertError> {
+        for (field, value) in [
+            ("service", self.service.as_str()),
+            ("node", self.node.as_str()),
+            ("timestamp", self.timestamp.as_str()),
+            ("content", self.content.as_str()),
+        ] {
+            if value.trim().is_empty() {
+                return Err(LarkAlertError::Validation(format!(
+                    "card field `{field}` must not be empty"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn to_message(&self) -> CardMessage {
         CardMessage {
             msg_type: "interactive",
@@ -186,8 +244,9 @@ impl Card {
         }
     }
 
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&self.to_message())
+    pub fn to_json(&self) -> Result<String, LarkAlertError> {
+        self.validate()?;
+        Ok(serde_json::to_string(&self.to_message())?)
     }
 
     fn wire_elements(&self) -> Vec<WireElement> {
@@ -200,23 +259,24 @@ impl Card {
             });
         }
 
-        let mut fields = self.fields.clone();
-        if let Some(service) = &self.service {
-            fields.insert(0, CardField::new("服务", service));
-        }
-        if let Some(environment) = &self.environment {
-            fields.insert(0, CardField::new("环境", environment));
-        }
-        if let Some(timestamp) = &self.timestamp {
-            fields.insert(0, CardField::new("时间", timestamp));
-        }
+        elements.push(WireElement::Div {
+            text: Some(WireText::lark_md(&self.content)),
+            fields: None,
+        });
 
-        if !fields.is_empty() {
-            elements.push(WireElement::Div {
-                text: None,
-                fields: Some(fields),
-            });
+        let mut fields = Vec::new();
+        fields.push(CardField::new("服务", &self.service));
+        fields.push(CardField::new("节点", &self.node));
+        if let Some(environment) = &self.environment {
+            fields.push(CardField::new("环境", environment));
         }
+        fields.push(CardField::new("时间", &self.timestamp));
+        fields.extend(self.fields.clone());
+
+        elements.push(WireElement::Div {
+            text: None,
+            fields: Some(fields),
+        });
 
         for element in &self.custom_elements {
             elements.push(match element {
@@ -375,16 +435,19 @@ mod tests {
 
     #[test]
     fn card_uses_unified_template_without_emoji() {
-        let card = Card::new()
-            .severity(Severity::Error)
-            .title("Order service down")
-            .summary("checkout is failing")
-            .service("order-api")
-            .environment("prod")
-            .timestamp("2026-01-01T00:00:00Z")
-            .details("error rate > 5% for 10 minutes")
-            .note("auto-generated by lark_alert")
-            .build();
+        let card = Card::new(
+            "order-api",
+            "node-1",
+            "2026-01-01T00:00:00Z",
+            "checkout is failing",
+        )
+        .severity(Severity::Error)
+        .title("Order service down")
+        .summary("checkout is failing")
+        .environment("prod")
+        .details("error rate > 5% for 10 minutes")
+        .note("auto-generated by lark_alert")
+        .build();
 
         let value = serde_json::to_value(card.to_message()).unwrap();
 
@@ -412,9 +475,8 @@ mod tests {
     }
 
     #[test]
-    fn default_card_has_two_column_fields() {
-        let card = Card::new()
-            .service("api")
+    fn card_includes_required_context_fields() {
+        let card = Card::new("api", "node-1", "2026-01-01T00:00:00Z", "disk full")
             .environment("staging")
             .field("region", "cn")
             .build();
@@ -426,12 +488,24 @@ mod tests {
             .expect("fields element should exist");
         let fields = fields_element["fields"].as_array().unwrap();
         assert!(fields.iter().all(|f| f["is_short"] == true));
-        assert_eq!(fields.len(), 3);
+        assert_eq!(fields.len(), 5);
+
+        let contents: Vec<String> = fields
+            .iter()
+            .map(|f| f["text"]["content"].as_str().unwrap().to_string())
+            .collect();
+        assert!(contents.iter().any(|c| c.starts_with("**服务**\napi")));
+        assert!(contents.iter().any(|c| c.starts_with("**节点**\nnode-1")));
+        assert!(
+            contents
+                .iter()
+                .any(|c| c.starts_with("**时间**\n2026-01-01T00:00:00Z"))
+        );
     }
 
     #[test]
     fn custom_elements_are_appended() {
-        let card = Card::new()
+        let card = Card::new("api", "node-1", "2026-01-01T00:00:00Z", "content")
             .element(CardElement::Hr)
             .element(CardElement::Note {
                 content: "custom".to_string(),
@@ -446,12 +520,17 @@ mod tests {
 
     #[test]
     fn card_json_matches_expected_shape() {
-        let card = Card::new()
-            .severity(Severity::Info)
-            .title("title")
-            .summary("summary")
-            .field("a", "b")
-            .build();
+        let card = Card::new(
+            "order-api",
+            "node-1",
+            "2026-01-01T00:00:00Z",
+            "something failed",
+        )
+        .severity(Severity::Info)
+        .title("title")
+        .summary("summary")
+        .field("a", "b")
+        .build();
         let expected = json!({
             "msg_type": "interactive",
             "card": {
@@ -464,7 +543,11 @@ mod tests {
                 "body": {
                     "elements": [
                         {"tag": "div", "text": {"tag": "lark_md", "content": "summary"}},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "something failed"}},
                         {"tag": "div", "fields": [
+                            {"is_short": true, "text": {"tag": "lark_md", "content": "**服务**\norder-api"}},
+                            {"is_short": true, "text": {"tag": "lark_md", "content": "**节点**\nnode-1"}},
+                            {"is_short": true, "text": {"tag": "lark_md", "content": "**时间**\n2026-01-01T00:00:00Z"}},
                             {"is_short": true, "text": {"tag": "lark_md", "content": "**a**\nb"}}
                         ]}
                     ]
@@ -472,5 +555,20 @@ mod tests {
             }
         });
         assert_eq!(serde_json::to_value(card.to_message()).unwrap(), expected);
+    }
+
+    #[test]
+    fn card_validate_rejects_empty_required_fields() {
+        let card = Card::new("api", "node-1", "2026-01-01T00:00:00Z", "");
+        assert!(matches!(
+            card.validate(),
+            Err(LarkAlertError::Validation(msg)) if msg.contains("content")
+        ));
+
+        let card = Card::new("", "node-1", "2026-01-01T00:00:00Z", "content");
+        assert!(matches!(
+            card.validate(),
+            Err(LarkAlertError::Validation(msg)) if msg.contains("service")
+        ));
     }
 }

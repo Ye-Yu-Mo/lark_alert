@@ -16,6 +16,19 @@
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **强制告警上下文**：
+  - `Card` 构造必须提供 `service`、`node`、`timestamp`、`content`
+  - 新增 `Card::node()`、`Card::content()` / `message()` 方法
+  - `Card::to_json()` 和 `LarkAlert::send_card()` 会校验必填字段，拒绝空值
+  - 卡片布局增加「报警内容」和「报警节点」字段
+- Python `Card()` 构造必须传入 `service`、`node`、`timestamp`、`content`
+
+---
+
 ## [0.1.0] - 2026-08-28
 
 ### Added

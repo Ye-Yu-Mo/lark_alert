@@ -76,9 +76,15 @@ pub struct PyCard {
 #[pymethods]
 impl PyCard {
     #[new]
-    fn new() -> Self {
+    #[pyo3(signature = (service, node, timestamp, content))]
+    fn new(service: &str, node: &str, timestamp: &str, content: &str) -> Self {
         Self {
-            inner: rust::Card::new(),
+            inner: rust::Card::new(
+                service.to_string(),
+                node.to_string(),
+                timestamp.to_string(),
+                content.to_string(),
+            ),
         }
     }
 
@@ -102,6 +108,11 @@ impl PyCard {
         Py::new(py, PyCard { inner })
     }
 
+    fn node<'py>(&self, py: Python<'py>, node: &str) -> PyResult<Py<PyCard>> {
+        let inner = self.inner.clone().node(node.to_string());
+        Py::new(py, PyCard { inner })
+    }
+
     fn environment<'py>(&self, py: Python<'py>, environment: &str) -> PyResult<Py<PyCard>> {
         let inner = self.inner.clone().environment(environment.to_string());
         Py::new(py, PyCard { inner })
@@ -115,6 +126,11 @@ impl PyCard {
     /// Alias for `timestamp`.
     fn time<'py>(&self, py: Python<'py>, timestamp: &str) -> PyResult<Py<PyCard>> {
         let inner = self.inner.clone().time(timestamp.to_string());
+        Py::new(py, PyCard { inner })
+    }
+
+    fn content<'py>(&self, py: Python<'py>, content: &str) -> PyResult<Py<PyCard>> {
+        let inner = self.inner.clone().content(content.to_string());
         Py::new(py, PyCard { inner })
     }
 
@@ -146,9 +162,7 @@ impl PyCard {
 
     /// Serialize this card (including the `msg_type` wrapper) to a JSON string.
     fn to_json(&self) -> PyResult<String> {
-        self.inner
-            .to_json()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.inner.to_json().map_err(map_err)
     }
 
     fn __repr__(&self) -> String {

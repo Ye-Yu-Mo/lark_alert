@@ -28,13 +28,16 @@ def main() -> None:
 
     # 3. 统一样式卡片
     card = (
-        Card()
+        Card(
+            service="prometheus",
+            node="node-1",
+            timestamp="2026-01-01T00:00:00Z",
+            content="disk / 使用率 92%，持续 10 分钟超过 90% 阈值",
+        )
         .severity(Severity.Warning)
         .title("磁盘使用率过高")
         .summary("disk / 使用率 92%")
-        .service("prometheus")
         .environment("prod")
-        .timestamp("2026-01-01T00:00:00Z")
         .field("host", "10.0.0.1")
         .wide_field("mount", "/")
         .details("持续 10 分钟超过 90% 阈值")

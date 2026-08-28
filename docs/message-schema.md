@@ -12,14 +12,22 @@
 | `error` | `red` |
 | `critical` | `carmine` |
 
+所有 `Card` 都必须提供以下告警上下文，否则无法发送：
+
+- `service`：报警服务
+- `node`：报警节点
+- `timestamp`：报警时间
+- `content`：报警内容
+
 默认卡片元素顺序：
 
 1. header：标题 + 级别颜色
 2. 摘要（可选）
-3. 关键字段（服务名、环境、时间，以及自定义双列字段）
-4. 自定义元素（可选）
-5. 分割线 + 详情（可选）
-6. 底部说明 note（可选）
+3. 报警内容（必填）
+4. 关键字段（服务、节点、环境、时间，以及自定义双列字段）
+5. 自定义元素（可选）
+6. 分割线 + 详情（可选）
+7. 底部说明 note（可选）
 
 ## Text 消息
 
@@ -81,7 +89,15 @@
             },
             {
               "is_short": true,
+              "text": {"tag": "lark_md", "content": "**节点**\nnode-1"}
+            },
+            {
+              "is_short": true,
               "text": {"tag": "lark_md", "content": "**环境**\nprod"}
+            },
+            {
+              "is_short": true,
+              "text": {"tag": "lark_md", "content": "**时间**\n2026-01-01T00:00:00Z"}
             }
           ]
         },
