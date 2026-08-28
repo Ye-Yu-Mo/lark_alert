@@ -1,0 +1,32 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "lark-alert"
+version = "0.1.0"
+description = "Production-ready Feishu/Lark custom bot notification library (Rust core + Python bindings)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "lark_alert contributors" }]
+keywords = ["feishu", "lark", "webhook", "notification", "alert"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Communications",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["maturin>=1.7,<2.0", "pytest>=7"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "lark_alert._core"
+features = ["python", "pyo3/extension-module"]
+
+[tool.uv]
+package = true

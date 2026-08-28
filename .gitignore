@@ -1,1 +1,10 @@
 /target
+/.venv
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.so
+*.dylib
+*.dll
+*.whl
+/dist
