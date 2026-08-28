@@ -35,7 +35,7 @@
 
 ```toml
 [dependencies]
-lark_alert = "0.1"
+lark_alert = "0.2"
 ```
 
 ### Python
