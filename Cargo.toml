@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.85"
 description = "Production-ready Feishu/Lark custom bot notification library with Python bindings"
 license = "MIT"
+repository = "https://github.com/Ye-Yu-Mo/lark_alert"
+readme = "README.md"
+keywords = ["feishu", "lark", "webhook", "notification", "alert"]
+categories = ["web-programming", "api-bindings"]
 
 [lib]
 name = "lark_alert"
