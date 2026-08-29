@@ -16,6 +16,17 @@
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- 删除 `send()` 中不可达的 retry 死代码，避免误导后续维护
+- 修复 HTTP 错误时 `HttpStatus` 丢失响应 body 的问题：
+  - 移除 `ureq::Error::StatusCode` 映射中空 body 的死分支
+  - 非 2xx 响应统一通过读取响应 body 构造 `HttpStatus`，保留错误详情
+
+---
+
 ## [0.2.0] - 2026-08-28
 
 ### Changed

@@ -76,7 +76,6 @@ impl LarkAlert {
 
     pub fn send<T: Serialize>(&self, message: &T) -> Result<(), LarkAlertError> {
         let body = self.build_body(message)?;
-        let mut last_error: Option<LarkAlertError> = None;
 
         for attempt in 0..=self.max_retries {
             match self.send_once(&body) {
@@ -92,19 +91,13 @@ impl LarkAlert {
                             err
                         });
                     }
-                    last_error = Some(err);
                     let backoff = self.backoff(attempt);
                     std::thread::sleep(backoff);
                 }
             }
         }
 
-        Err(LarkAlertError::RetryExhausted {
-            retries: self.max_retries,
-            source: Box::new(
-                last_error.unwrap_or(LarkAlertError::Http("request failed".to_string())),
-            ),
-        })
+        unreachable!("retry loop always returns; max_retries is a u32 and the loop is inclusive")
     }
 
     pub fn send_text(&self, text: impl Into<String>) -> Result<(), LarkAlertError> {
@@ -168,13 +161,7 @@ impl LarkAlert {
             .post(&self.webhook_url)
             .header("Content-Type", "application/json")
             .send_json(body)
-            .map_err(|err| match err {
-                ureq::Error::StatusCode(status) => LarkAlertError::HttpStatus {
-                    status,
-                    body: String::new(),
-                },
-                other => LarkAlertError::Http(other.to_string()),
-            })?;
+            .map_err(|err| LarkAlertError::Http(err.to_string()))?;
 
         let status = response.status().as_u16();
         let text = response
