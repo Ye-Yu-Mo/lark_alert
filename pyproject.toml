@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "lark-alert"
-version = "0.2.0"
+version = "0.2.1"
 description = "Production-ready Feishu/Lark custom bot notification library (Rust core + Python bindings)"
 readme = "README.md"
 requires-python = ">=3.9"
