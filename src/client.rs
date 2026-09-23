@@ -13,6 +13,19 @@ const DEFAULT_MAX_RETRIES: u32 = 3;
 const DEFAULT_BASE_BACKOFF_MS: u64 = 100;
 const DEFAULT_MAX_BACKOFF_MS: u64 = 2_000;
 
+/// Feishu answers an over-eager bot with HTTP 200 plus this business code
+/// (observed as `frequency limited psm[...]appID[...]`) instead of HTTP 429.
+const FEISHU_RATE_LIMIT_CODE: i64 = 11232;
+
+/// Rate limits get a seconds-scale backoff of their own.
+///
+/// Feishu limits a bot's sends per minute, so the sub-second schedule used for
+/// transient transport errors (100/200/400 ms) would spend every retry inside
+/// the very window that is still rate limited, and then drop the alert. This is
+/// how the 2026-09-23 burst lost its alerts at the moment they mattered most.
+const RATE_LIMIT_BASE_BACKOFF_MS: u64 = 1_000;
+const RATE_LIMIT_MAX_BACKOFF_MS: u64 = 10_000;
+
 /// A Feishu custom bot webhook client.
 ///
 /// The client owns a `ureq::Agent`, so connections are pooled and reused across
@@ -91,7 +104,7 @@ impl LarkAlert {
                             err
                         });
                     }
-                    let backoff = self.backoff(attempt);
+                    let backoff = self.backoff(attempt, &err);
                     std::thread::sleep(backoff);
                 }
             }
@@ -186,9 +199,23 @@ impl LarkAlert {
         Ok(())
     }
 
-    fn backoff(&self, attempt: u32) -> Duration {
-        let exp = self.base_backoff_ms.saturating_mul(1u64 << attempt.min(10));
-        Duration::from_millis(exp.min(self.max_backoff_ms))
+    /// Delay before the next attempt.
+    ///
+    /// A rate limit is measured in seconds at Feishu, not milliseconds, so it
+    /// gets a seconds-scale floor — the caller's normal schedule would burn
+    /// every retry inside the same limited window. The floor only ever
+    /// *lengthens* the caller's configured backoff, never shortens it.
+    fn backoff(&self, attempt: u32, err: &LarkAlertError) -> Duration {
+        let (base, ceiling) = if err.is_rate_limited() {
+            (
+                self.base_backoff_ms.max(RATE_LIMIT_BASE_BACKOFF_MS),
+                self.max_backoff_ms.max(RATE_LIMIT_MAX_BACKOFF_MS),
+            )
+        } else {
+            (self.base_backoff_ms, self.max_backoff_ms)
+        };
+        let exp = base.saturating_mul(1u64 << attempt.min(10));
+        Duration::from_millis(exp.min(ceiling))
     }
 }
 
@@ -251,10 +278,29 @@ struct FeishuResponse {
 }
 
 impl LarkAlertError {
+    /// Whether the request may be sent again unchanged.
+    ///
+    /// `Http` and 5xx are transient transport failures; 429 and Feishu's
+    /// rate-limit business code are transient by definition. Anything else
+    /// (validation, bad webhook, other business codes) would fail identically
+    /// on every attempt.
     fn is_retryable(&self) -> bool {
         match self {
             LarkAlertError::Http(_) => true,
-            LarkAlertError::HttpStatus { status, .. } => *status >= 500,
+            LarkAlertError::HttpStatus { status, .. } => *status >= 500 || *status == 429,
+            LarkAlertError::Business { code, .. } => *code == FEISHU_RATE_LIMIT_CODE,
+            _ => false,
+        }
+    }
+
+    /// Whether this failure is a rate limit rather than a transport hiccup.
+    ///
+    /// Rate limits need a longer backoff: the caller's normal retry schedule is
+    /// tuned for milliseconds, while a rate limit is measured in seconds.
+    fn is_rate_limited(&self) -> bool {
+        match self {
+            LarkAlertError::HttpStatus { status, .. } => *status == 429,
+            LarkAlertError::Business { code, .. } => *code == FEISHU_RATE_LIMIT_CODE,
             _ => false,
         }
     }
@@ -492,5 +538,82 @@ mod tests {
             err,
             LarkAlertError::RetryExhausted { retries: 1, .. }
         ));
+    }
+
+    /// 飞书限流用 HTTP 200 + business code 表达，不是 429。
+    ///
+    /// 2026-09-23 的告警风暴里，限流错误被当成永久错误直接丢弃 ——
+    /// 恰好在最需要告警的时候丢掉了告警。
+    #[test]
+    fn rate_limited_business_error_is_retried() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_clone = Arc::clone(&attempts);
+        let url = spawn_mock(move |_, counter| {
+            attempts_clone.store(counter + 1, Ordering::SeqCst);
+            if counter == 0 {
+                (
+                    200,
+                    r#"{"code":11232,"msg":"frequency limited"}"#.to_string(),
+                )
+            } else {
+                ok_response()
+            }
+        });
+        let alert = LarkAlert::new(url).unwrap().with_max_retries(1);
+        alert.send_text("hello").unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), 2, "限流后必须再试一次");
+    }
+
+    #[test]
+    fn http_429_is_retried() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_clone = Arc::clone(&attempts);
+        let url = spawn_mock(move |_, counter| {
+            attempts_clone.store(counter + 1, Ordering::SeqCst);
+            if counter == 0 {
+                (429, r#"{"code":0,"msg":"too many requests"}"#.to_string())
+            } else {
+                ok_response()
+            }
+        });
+        let alert = LarkAlert::new(url).unwrap().with_max_retries(1);
+        alert.send_text("hello").unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    /// 非限流的业务错误重试没有意义：重试几次结果都一样。
+    #[test]
+    fn other_business_errors_are_not_retried() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_clone = Arc::clone(&attempts);
+        let url = spawn_mock(move |_, counter| {
+            attempts_clone.store(counter + 1, Ordering::SeqCst);
+            (200, r#"{"code":19001,"msg":"sign not match"}"#.to_string())
+        });
+        let alert = LarkAlert::new(url).unwrap().with_max_retries(3);
+        assert!(alert.send_text("hello").is_err());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1, "签名错误不该重试");
+    }
+
+    /// 限流的退避必须比网络抖动长：飞书按分钟限流，毫秒级重试全落在同一个窗口里。
+    #[test]
+    fn rate_limit_backoff_is_longer_than_a_transport_error() {
+        let alert = LarkAlert::new("https://open.feishu.cn/open-apis/bot/v2/hook/x")
+            .unwrap()
+            .with_backoff(100, 200);
+
+        let transport = LarkAlertError::Http("connection reset".to_string());
+        let limited = LarkAlertError::Business {
+            code: FEISHU_RATE_LIMIT_CODE,
+            msg: "frequency limited".to_string(),
+        };
+
+        assert!(
+            alert.backoff(0, &limited) > alert.backoff(0, &transport),
+            "限流必须等得比网络抖动久，否则重试全打在同一个限流窗口里"
+        );
+        // 调用方配置的退避只会被拉长，不会被缩短
+        assert_eq!(alert.backoff(0, &transport), Duration::from_millis(100));
+        assert!(alert.backoff(0, &limited) >= Duration::from_millis(1_000));
     }
 }
